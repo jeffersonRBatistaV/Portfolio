@@ -73,8 +73,7 @@
 
     nav,
     main,
-    footer,
-    .skip {
+    footer {
       position: relative;
       z-index: 1;
     }
@@ -138,6 +137,9 @@
 
     /* Skip link */
     .skip {
+      position: absolute;
+      left: -9999px;
+      top: 0;
       display: block;
       background: var(--foreground);
       color: var(--background);
@@ -150,8 +152,10 @@
       z-index: 30;
     }
 
-    .skip:hover {
-      text-decoration: underline;
+    .skip:focus,
+    .skip:focus-visible {
+      left: 0;
+      right: 0;
     }
 
     /* Sections */
@@ -410,6 +414,7 @@
       color: var(--background);
       border-top: 4px solid var(--foreground);
       overflow: hidden;
+      padding-inline: clamp(1.5rem, 4vw, 3rem);
     }
 
     #skills::before {
@@ -756,6 +761,38 @@
       }
     }
   
+    /* ── Motion (solo con JS activo) ─────────── */
+    .motion section {
+      position: relative;
+    }
+
+    .motion section:not(.hero):not(#about) {
+      border-top-color: transparent;
+    }
+
+    .motion section:not(.hero):not(#about)::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: var(--foreground);
+      transform: scaleX(0);
+      transform-origin: left center;
+      z-index: 2;
+      transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .motion section:not(.hero):not(#about).rule-in::after {
+      transform: scaleX(1);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .motion section:not(.hero):not(#about).rule-in::after {
+        transition: none;
+      }
+    }
   </style>
 </head>
 
@@ -1146,6 +1183,104 @@
     </footer>
 
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
+      if (!window.gsap || !window.ScrollTrigger) { return; }
+
+      var gsap = window.gsap;
+      var ScrollTrigger = window.ScrollTrigger;
+      var EASE = 'power2.out';
+      gsap.registerPlugin(ScrollTrigger);
+      document.body.classList.add('motion');
+
+      // 1) Entrada del hero (al cargar, sin scroll)
+      gsap.set('.hero .label', { autoAlpha: 0, y: 16 });
+      gsap.set('.hero-name', { autoAlpha: 0, y: 40 });
+      gsap.set('.hero-cta', { autoAlpha: 0, y: 16 });
+      gsap.set('.status', { autoAlpha: 0, y: 16 });
+      gsap.timeline({ defaults: { duration: 0.6, ease: EASE, delay: 0.1 } })
+        .to('.hero .label', { autoAlpha: 1, y: 0 })
+        .to('.hero-name', { autoAlpha: 1, y: 0 }, '-=0.45')
+        .to('.hero-cta', { autoAlpha: 1, y: 0 }, '-=0.4')
+        .to('.status', { autoAlpha: 1, y: 0 }, '-=0.4');
+
+      // 2) Secciones: filete de 4px por scaleX + label/intro en stagger
+      var listas = ['.projects-list', '.exp-list', '.skills-grid', '.edu-list', '.contact-list'];
+      Array.prototype.forEach.call(document.querySelectorAll('section:not(.hero)'), function (section) {
+        var kids = Array.prototype.filter.call(section.children, function (el) {
+          return !listas.some(function (c) { return el.classList.contains(c.slice(1)); });
+        });
+        if (kids.length) { gsap.set(kids, { autoAlpha: 0, y: 18 }); }
+        ScrollTrigger.create({
+          trigger: section,
+          start: 'top 85%',
+          once: true,
+          onEnter: function () {
+            section.classList.add('rule-in');
+            if (kids.length) {
+              gsap.to(kids, { autoAlpha: 1, y: 0, duration: 0.5, ease: EASE, stagger: 0.06 });
+            }
+          }
+        });
+      });
+
+      // 3) Tarjetas, filas y bloques en batch con stagger
+      [
+        { sel: '.projects-list > .project', stagger: 0.06 },
+        { sel: '.exp-list > .exp-item', stagger: 0.08 },
+        { sel: '.skills-grid > .skill-block', stagger: 0.08 }
+      ].forEach(function (b) {
+        var items = document.querySelectorAll(b.sel);
+        if (!items.length) { return; }
+        gsap.set(items, { autoAlpha: 0, y: 20 });
+        ScrollTrigger.batch(b.sel, {
+          start: 'top 88%',
+          once: true,
+          onEnter: function (batch) {
+            gsap.to(batch, { autoAlpha: 1, y: 0, duration: 0.5, ease: EASE, stagger: b.stagger });
+          }
+        });
+      });
+
+      // 4) Red de seguridad: si un trigger no disparase, nada puede quedar oculto.
+      //    Solo revela lo que sigue oculto y ya está bien dentro del viewport, así que
+      //    no interfiere cuando ScrollTrigger funciona (dispara antes, a 'top 85%').
+      var NET_EL = '.project, .exp-item, .skill-block, .label, .about-body, .contact-intro, .hero-name, .hero-cta, .status, .edu-row, .contact-item';
+      var netQueued = false;
+      function net() {
+        netQueued = false;
+        var limit = window.innerHeight * 0.5;
+        Array.prototype.forEach.call(document.querySelectorAll(NET_EL), function (el) {
+          if (parseFloat(window.getComputedStyle(el).opacity) < 1 && el.getBoundingClientRect().top < limit) {
+            gsap.set(el, { autoAlpha: 1, y: 0 });
+          }
+        });
+        Array.prototype.forEach.call(document.querySelectorAll('section:not(.hero):not(#about)'), function (section) {
+          if (!section.classList.contains('rule-in') && section.getBoundingClientRect().top < limit) {
+            section.classList.add('rule-in');
+          }
+        });
+      }
+      function queueNet() {
+        if (netQueued) { return; }
+        netQueued = true;
+        window.requestAnimationFrame(net);
+      }
+
+      var refresh = function () { ScrollTrigger.refresh(); };
+      if (document.fonts && document.fonts.ready) { document.fonts.ready.then(refresh); }
+      window.addEventListener('load', function () {
+        refresh();
+        window.setTimeout(net, 2000);
+      });
+      window.addEventListener('scroll', queueNet, { passive: true });
+      window.addEventListener('resize', queueNet);
+    })();
+  </script>
 </body>
 
 </html>
